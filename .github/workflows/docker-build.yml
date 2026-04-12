@@ -35,3 +35,16 @@ jobs:
           context: .
           push: true
           tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+
+  test:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pull and run container
+        run: |
+          docker run -d --name jarvis -p 5000:5000 ghcr.io/${{ github.repository_owner }}/jarvis_container:latest
+          sleep 5
+          echo "=== Testing /ask endpoint ==="
+          curl -X POST http://localhost:5000/ask -H "Content-Type: application/json" -d '{"question":"Hello JARVIS"}' || true
+          echo "=== Container logs ==="
+          docker logs jarvis
