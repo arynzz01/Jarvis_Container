@@ -1,4 +1,3 @@
-
 import os
 import json
 import logging
@@ -12,21 +11,17 @@ import requests
 # ------------------------------
 app = Flask(__name__)
 
-# Load API keys from environment variables (set them in your deployment)
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 TAVILY_API_KEY = os.environ.get("TAVILY_API_KEY", "")
 
 if not GROQ_API_KEY:
     raise RuntimeError("GROQ_API_KEY not set")
 
-# Simple in‑memory conversation memory (for demo)
 conversation_memory = []
 
-# Logging setup
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("jarvis")
 
-# Input sanitisation
 def sanitise_input(text):
     dangerous = [';', '--', '/*', '*/', 'exec', 'eval', '__import__']
     for d in dangerous:
@@ -42,7 +37,7 @@ client = Groq(api_key=GROQ_API_KEY)
 
 def llm_chat(user_message, conversation_history):
     messages = [{"role": "system", "content": "You are JARVIS, a helpful AI assistant."}]
-    messages.extend(conversation_history[-10:])  # keep last 10 exchanges
+    messages.extend(conversation_history[-10:])
     messages.append({"role": "user", "content": user_message})
     try:
         completion = client.chat.completions.create(
@@ -74,8 +69,7 @@ def web_search(query):
         if not results:
             return "No results found."
         summaries = [f"• {r['title']}: {r['content'][:150]}..." for r in results]
-        return "
-".join(summaries)
+        return "\n".join(summaries)
     except Exception as e:
         logger.error(f"Web search error: {e}")
         return "Web search failed."
@@ -96,7 +90,6 @@ def ask():
     question = sanitise_input(raw_question)
     logger.info(f"Question: {question}")
 
-    # Optional: detect tool use
     if "search" in question.lower():
         result = web_search(question)
         return jsonify({"answer": result})
