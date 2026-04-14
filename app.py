@@ -3,7 +3,6 @@ import json
 import logging
 from datetime import datetime
 from flask import Flask, request, jsonify
-from groq import Groq
 import requests
 
 # ------------------------------
@@ -31,21 +30,28 @@ def sanitise_input(text):
     return ''.join(c for c in text if c.isprintable())
 
 # ------------------------------
-# 2. LLM Core (Groq)
+# 2. LLM Core (direct Groq API call)
 # ------------------------------
-client = Groq(api_key=GROQ_API_KEY)
+GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 def llm_chat(user_message, conversation_history):
     messages = [{"role": "system", "content": "You are JARVIS, a helpful AI assistant."}]
     messages.extend(conversation_history[-10:])
     messages.append({"role": "user", "content": user_message})
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "model": "llama3-70b-8192",   # ✅ Correct model name for Groq free tier
+        "messages": messages,
+        "temperature": 0.7
+    }
     try:
-        completion = client.chat.completions.create(
-            model="llama3-3-70b-versatile",
-            messages=messages,
-            temperature=0.7
-        )
-        reply = completion.choices[0].message.content
+        response = requests.post(GROQ_API_URL, headers=headers, json=payload, timeout=30)
+        response.raise_for_status()
+        data = response.json()
+        reply = data['choices'][0]['message']['content']
         conversation_history.append({"role": "user", "content": user_message})
         conversation_history.append({"role": "assistant", "content": reply})
         return reply
@@ -62,7 +68,8 @@ def web_search(query):
     try:
         resp = requests.post(
             "https://api.tavily.com/search",
-            json={"api_key": TAVILY_API_KEY, "query": query, "max_results": 2}
+            json={"api_key": TAVILY_API_KEY, "query": query, "max_results": 2},
+            timeout=30
         )
         data = resp.json()
         results = data.get("results", [])
@@ -79,7 +86,7 @@ def web_search(query):
 # ------------------------------
 @app.route('/')
 def home():
-    return jsonify({"status": "JARVIS is running", "version": "integrated-0.1"})
+    return jsonify({"status": "JARVIS is running", "version": "integrated-0.2"})
 
 @app.route('/ask', methods=['POST'])
 def ask():
