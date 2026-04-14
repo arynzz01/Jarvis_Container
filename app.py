@@ -37,7 +37,7 @@ def llm_chat(user_message, conversation_history):
         "Content-Type": "application/json"
     }
     payload = {
-        "model": "mixtral-8x7b-32768",   # ✅ known working model
+        "model": "llama-3.3-70b-versatile",   # ✅ currently supported model (March 2026)
         "messages": messages,
         "temperature": 0.7
     }
