@@ -36,7 +36,7 @@ jobs:
           push: true
           tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
 
-    test:
+  test:
     needs: build
     runs-on: ubuntu-latest
     steps:
@@ -50,5 +50,4 @@ jobs:
           echo "=== Testing /ask endpoint ==="
           curl -X POST http://localhost:5000/ask -H "Content-Type: application/json" -d '{"question":"Hello JARVIS"}' || true
           echo "=== Container logs ==="
-          docker logs jarvis
           docker logs jarvis
