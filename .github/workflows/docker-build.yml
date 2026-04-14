@@ -1,5 +1,5 @@
 name: Build and Push JARVIS Container
-#this is updated3
+
 on:
   push:
     branches: [ "main" ]
@@ -36,7 +36,7 @@ jobs:
           push: true
           tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
 
-   test:
+  test:
     needs: build
     runs-on: ubuntu-latest
     steps:
@@ -51,10 +51,9 @@ jobs:
             -v /tmp/jarvis_data:/data \
             ghcr.io/${{ github.repository_owner }}/jarvis_container:latest
           sleep 5
-          echo "=== First request (should store memory) ==="
-          curl -X POST http://localhost:5000/ask -H "Content-Type: application/json" -d '{"question":"My name is Rahul"}' || true
-          echo "=== Second request (should recall name) ==="
-          curl -X POST http://localhost:5000/ask -H "Content-Type: application/json" -d '{"question":"What is my name?"}' || true
+          echo "=== First request (store name) ==="
+          curl -X POST http://localhost:5000/ask -H "Content-Type: application/json" -d '{"question":"My name is Rahul"}'
+          echo "=== Second request (recall name) ==="
+          curl -X POST http://localhost:5000/ask -H "Content-Type: application/json" -d '{"question":"What is my name?"}'
           echo "=== Container logs ==="
-          docker logs jarvislogs ==="
           docker logs jarvis
