@@ -5,9 +5,6 @@ from datetime import datetime
 from flask import Flask, request, jsonify
 import requests
 
-# ------------------------------
-# 1. Configuration & Security
-# ------------------------------
 app = Flask(__name__)
 
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
@@ -29,9 +26,6 @@ def sanitise_input(text):
         text = text[:1000]
     return ''.join(c for c in text if c.isprintable())
 
-# ------------------------------
-# 2. LLM Core (direct Groq API call)
-# ------------------------------
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 def llm_chat(user_message, conversation_history):
@@ -43,13 +37,15 @@ def llm_chat(user_message, conversation_history):
         "Content-Type": "application/json"
     }
     payload = {
-        "model": "llama3-70b-8192",   # ✅ Correct model name for Groq free tier
+        "model": "mixtral-8x7b-32768",   # ✅ known working model
         "messages": messages,
         "temperature": 0.7
     }
     try:
         response = requests.post(GROQ_API_URL, headers=headers, json=payload, timeout=30)
-        response.raise_for_status()
+        if response.status_code != 200:
+            logger.error(f"Groq API error {response.status_code}: {response.text}")
+            return f"I'm having trouble thinking right now. (API error {response.status_code})"
         data = response.json()
         reply = data['choices'][0]['message']['content']
         conversation_history.append({"role": "user", "content": user_message})
@@ -59,9 +55,6 @@ def llm_chat(user_message, conversation_history):
         logger.error(f"LLM error: {e}")
         return "I'm having trouble thinking right now."
 
-# ------------------------------
-# 3. Web Search (Tavily)
-# ------------------------------
 def web_search(query):
     if not TAVILY_API_KEY:
         return "Web search not configured (no API key)."
@@ -81,9 +74,6 @@ def web_search(query):
         logger.error(f"Web search error: {e}")
         return "Web search failed."
 
-# ------------------------------
-# 4. Flask Routes
-# ------------------------------
 @app.route('/')
 def home():
     return jsonify({"status": "JARVIS is running", "version": "integrated-0.2"})
