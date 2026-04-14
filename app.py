@@ -9,11 +9,27 @@ app = Flask(__name__)
 
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 TAVILY_API_KEY = os.environ.get("TAVILY_API_KEY", "")
+MEMORY_FILE = os.environ.get("MEMORY_FILE", "/data/memory.json")   # persistent file
 
 if not GROQ_API_KEY:
     raise RuntimeError("GROQ_API_KEY not set")
 
-conversation_memory = []
+# Load existing memory from file
+def load_memory():
+    if os.path.exists(MEMORY_FILE):
+        try:
+            with open(MEMORY_FILE, 'r') as f:
+                return json.load(f)
+        except:
+            return []
+    return []
+
+def save_memory(mem):
+    os.makedirs(os.path.dirname(MEMORY_FILE), exist_ok=True)
+    with open(MEMORY_FILE, 'w') as f:
+        json.dump(mem, f, indent=2)
+
+conversation_memory = load_memory()
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("jarvis")
@@ -30,14 +46,14 @@ GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 def llm_chat(user_message, conversation_history):
     messages = [{"role": "system", "content": "You are JARVIS, a helpful AI assistant."}]
-    messages.extend(conversation_history[-10:])
+    messages.extend(conversation_history[-10:])  # last 10 exchanges
     messages.append({"role": "user", "content": user_message})
     headers = {
         "Authorization": f"Bearer {GROQ_API_KEY}",
         "Content-Type": "application/json"
     }
     payload = {
-        "model": "llama-3.3-70b-versatile",   # ✅ currently supported model (March 2026)
+        "model": "llama-3.3-70b-versatile",
         "messages": messages,
         "temperature": 0.7
     }
@@ -50,6 +66,7 @@ def llm_chat(user_message, conversation_history):
         reply = data['choices'][0]['message']['content']
         conversation_history.append({"role": "user", "content": user_message})
         conversation_history.append({"role": "assistant", "content": reply})
+        save_memory(conversation_history)   # persist after each exchange
         return reply
     except Exception as e:
         logger.error(f"LLM error: {e}")
@@ -76,7 +93,7 @@ def web_search(query):
 
 @app.route('/')
 def home():
-    return jsonify({"status": "JARVIS is running", "version": "integrated-0.2"})
+    return jsonify({"status": "JARVIS is running", "version": "integrated-0.3"})
 
 @app.route('/ask', methods=['POST'])
 def ask():
@@ -108,7 +125,8 @@ def status():
         "groq_api_configured": bool(GROQ_API_KEY),
         "tavily_api_configured": bool(TAVILY_API_KEY),
         "logging": "active",
-        "security": "input sanitisation enabled"
+        "security": "input sanitisation enabled",
+        "memory_file": MEMORY_FILE
     })
 
 if __name__ == '__main__':
