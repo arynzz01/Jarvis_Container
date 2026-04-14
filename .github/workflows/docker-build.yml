@@ -36,15 +36,19 @@ jobs:
           push: true
           tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
 
-  test:
+    test:
     needs: build
     runs-on: ubuntu-latest
     steps:
       - name: Pull and run container
         run: |
-          docker run -d --name jarvis -p 5000:5000 ghcr.io/${{ github.repository_owner }}/jarvis_container:latest
+          docker run -d --name jarvis -p 5000:5000 \
+            -e GROQ_API_KEY=${{ secrets.GROQ_API_KEY }} \
+            -e TAVILY_API_KEY=${{ secrets.TAVILY_API_KEY }} \
+            ghcr.io/${{ github.repository_owner }}/jarvis_container:latest
           sleep 5
           echo "=== Testing /ask endpoint ==="
           curl -X POST http://localhost:5000/ask -H "Content-Type: application/json" -d '{"question":"Hello JARVIS"}' || true
           echo "=== Container logs ==="
+          docker logs jarvis
           docker logs jarvis
