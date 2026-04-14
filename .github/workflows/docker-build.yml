@@ -1,5 +1,5 @@
 name: Build and Push JARVIS Container
-#this is updated2
+#this is updated3
 on:
   push:
     branches: [ "main" ]
@@ -36,18 +36,25 @@ jobs:
           push: true
           tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
 
-  test:
+   test:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - name: Create persistent data directory
+        run: mkdir -p /tmp/jarvis_data
+
       - name: Pull and run container
         run: |
           docker run -d --name jarvis -p 5000:5000 \
             -e GROQ_API_KEY=${{ secrets.GROQ_API_KEY }} \
             -e TAVILY_API_KEY=${{ secrets.TAVILY_API_KEY }} \
+            -v /tmp/jarvis_data:/data \
             ghcr.io/${{ github.repository_owner }}/jarvis_container:latest
           sleep 5
-          echo "=== Testing /ask endpoint ==="
-          curl -X POST http://localhost:5000/ask -H "Content-Type: application/json" -d '{"question":"Hello JARVIS"}' || true
+          echo "=== First request (should store memory) ==="
+          curl -X POST http://localhost:5000/ask -H "Content-Type: application/json" -d '{"question":"My name is Rahul"}' || true
+          echo "=== Second request (should recall name) ==="
+          curl -X POST http://localhost:5000/ask -H "Content-Type: application/json" -d '{"question":"What is my name?"}' || true
           echo "=== Container logs ==="
+          docker logs jarvislogs ==="
           docker logs jarvis
