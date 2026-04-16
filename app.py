@@ -23,6 +23,7 @@ app = Flask(__name__)
 UPLOAD_FOLDER = "/data/uploads"
 SCHEDULE_FILE = "/data/schedules.json"
 TOOLS_DIR = "/data/tools"
+QUESTIONS_FILE = "/data/pending_questions.json"
 ALLOWED_EXTENSIONS = {'txt', 'pdf'}
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -100,8 +101,6 @@ def reset_daily_flags():
 scheduler = BackgroundScheduler()
 scheduler.add_job(func=check_schedules, trigger="interval", minutes=1)
 scheduler.add_job(func=reset_daily_flags, trigger="cron", hour=0, minute=0)
-scheduler.start()
-atexit.register(lambda: scheduler.shutdown())
 
 # ------------------------------
 # Tool Creation (Layer 22)
@@ -139,6 +138,52 @@ def load_tool(tool_name):
     return getattr(module, tool_name, None)
 
 # ------------------------------
+# Layer 25: JARVIS Asks Questions
+# ------------------------------
+def load_pending_questions():
+    if os.path.exists(QUESTIONS_FILE):
+        with open(QUESTIONS_FILE, 'r') as f:
+            return json.load(f)
+    return []
+
+def save_pending_questions(questions):
+    with open(QUESTIONS_FILE, 'w') as f:
+        json.dump(questions, f, indent=2)
+
+def generate_proactive_question():
+    context = ""
+    if documents:
+        sample_text = list(documents.values())[0][:500]
+        context = f"Based on the following text: {sample_text}\n"
+    prompt = f"""{context}Generate a single, interesting, open-ended question that a helpful AI assistant might ask the user to start a conversation. The question should be friendly and relevant. Do not include any extra text, just the question."""
+    try:
+        completion = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.7
+        )
+        question = completion.choices[0].message.content.strip()
+        return question
+    except Exception as e:
+        logger.error(f"Failed to generate question: {e}")
+        return "What would you like to talk about today?"
+
+def scheduled_question_generation():
+    if len(load_pending_questions()) < 5:
+        question = generate_proactive_question()
+        pending = load_pending_questions()
+        pending.append({
+            "timestamp": datetime.now().isoformat(),
+            "question": question
+        })
+        save_pending_questions(pending)
+        logger.info(f"Auto-generated question: {question}")
+
+scheduler.add_job(func=scheduled_question_generation, trigger="interval", hours=1)
+scheduler.start()
+atexit.register(lambda: scheduler.shutdown())
+
+# ------------------------------
 # Mobile-friendly frontend (Layer 24)
 # ------------------------------
 FRONTEND_HTML = '''
@@ -149,9 +194,7 @@ FRONTEND_HTML = '''
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
     <title>JARVIS – Mobile AI Assistant</title>
     <style>
-        * {
-            box-sizing: border-box;
-        }
+        * { box-sizing: border-box; }
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
             background: #0a0e1a;
@@ -159,16 +202,8 @@ FRONTEND_HTML = '''
             margin: 0;
             padding: 20px;
         }
-        .container {
-            max-width: 600px;
-            margin: 0 auto;
-        }
-        h1 {
-            font-size: 2rem;
-            text-align: center;
-            margin-bottom: 1rem;
-            color: #4c9aff;
-        }
+        .container { max-width: 600px; margin: 0 auto; }
+        h1 { font-size: 2rem; text-align: center; margin-bottom: 1rem; color: #4c9aff; }
         .card {
             background: #1e2433;
             border-radius: 16px;
@@ -176,11 +211,7 @@ FRONTEND_HTML = '''
             margin-bottom: 20px;
             box-shadow: 0 4px 12px rgba(0,0,0,0.3);
         }
-        .card h2 {
-            margin-top: 0;
-            font-size: 1.3rem;
-            color: #4c9aff;
-        }
+        .card h2 { margin-top: 0; font-size: 1.3rem; color: #4c9aff; }
         textarea, input, button {
             width: 100%;
             padding: 12px;
@@ -201,9 +232,7 @@ FRONTEND_HTML = '''
             cursor: pointer;
             transition: opacity 0.2s;
         }
-        button:active {
-            opacity: 0.7;
-        }
+        button:active { opacity: 0.7; }
         .response {
             background: #0f121c;
             padding: 12px;
@@ -222,45 +251,27 @@ FRONTEND_HTML = '''
             justify-content: space-between;
             align-items: center;
         }
-        .tool-name {
-            font-weight: bold;
-        }
-        .small-btn {
-            width: auto;
-            padding: 6px 12px;
-            background: #2a3345;
-        }
-        hr {
-            border-color: #2a3345;
-        }
-        .footer {
-            text-align: center;
-            font-size: 0.8rem;
-            color: #6c7a8a;
-        }
+        .tool-name { font-weight: bold; }
+        .small-btn { width: auto; padding: 6px 12px; background: #2a3345; }
+        hr { border-color: #2a3345; }
+        .footer { text-align: center; font-size: 0.8rem; color: #6c7a8a; }
     </style>
 </head>
 <body>
 <div class="container">
     <h1>🤖 JARVIS</h1>
-
-    <!-- Chat / Ask -->
     <div class="card">
         <h2>💬 Ask JARVIS</h2>
         <textarea id="question" rows="3" placeholder="Type your question here..."></textarea>
         <button id="askBtn">Send</button>
         <div id="askResponse" class="response"></div>
     </div>
-
-    <!-- Upload Document -->
     <div class="card">
         <h2>📄 Upload Document (TXT/PDF)</h2>
         <input type="file" id="fileInput" accept=".txt,.pdf">
         <button id="uploadBtn">Upload</button>
         <div id="uploadResponse" class="response"></div>
     </div>
-
-    <!-- Tool Creation -->
     <div class="card">
         <h2>🛠️ Create a Tool</h2>
         <input type="text" id="toolName" placeholder="Tool name (e.g., celsius_to_fahrenheit)">
@@ -268,15 +279,11 @@ FRONTEND_HTML = '''
         <button id="createToolBtn">Create Tool</button>
         <div id="createToolResponse" class="response"></div>
     </div>
-
-    <!-- List Tools -->
     <div class="card">
         <h2>📋 Available Tools</h2>
         <button id="listToolsBtn">Refresh Tools</button>
         <div id="toolsList" class="response"></div>
     </div>
-
-    <!-- Use Tool -->
     <div class="card">
         <h2>🔧 Use a Tool</h2>
         <input type="text" id="useToolName" placeholder="Tool name">
@@ -284,18 +291,13 @@ FRONTEND_HTML = '''
         <button id="useToolBtn">Execute Tool</button>
         <div id="useToolResponse" class="response"></div>
     </div>
-
-    <div class="footer">JARVIS v24 – Mobile ready</div>
+    <div class="footer">JARVIS v25 – Proactive & Tool‑ready</div>
 </div>
-
 <script>
-    const apiBase = '';
-
     async function fetchJSON(url, options) {
         const response = await fetch(url, options);
         return response.json();
     }
-
     document.getElementById('askBtn').onclick = async () => {
         const question = document.getElementById('question').value;
         if (!question) return;
@@ -312,7 +314,6 @@ FRONTEND_HTML = '''
             responseDiv.innerHTML = 'Error: ' + err.message;
         }
     };
-
     document.getElementById('uploadBtn').onclick = async () => {
         const fileInput = document.getElementById('fileInput');
         const file = fileInput.files[0];
@@ -329,7 +330,6 @@ FRONTEND_HTML = '''
             responseDiv.innerHTML = 'Error: ' + err.message;
         }
     };
-
     document.getElementById('createToolBtn').onclick = async () => {
         const name = document.getElementById('toolName').value;
         const desc = document.getElementById('toolDesc').value;
@@ -347,7 +347,6 @@ FRONTEND_HTML = '''
             responseDiv.innerHTML = 'Error: ' + err.message;
         }
     };
-
     document.getElementById('listToolsBtn').onclick = async () => {
         const responseDiv = document.getElementById('toolsList');
         responseDiv.innerHTML = 'Loading...';
@@ -367,11 +366,9 @@ FRONTEND_HTML = '''
             responseDiv.innerHTML = 'Error: ' + err.message;
         }
     };
-
     window.fillToolName = (name) => {
         document.getElementById('useToolName').value = name;
     };
-
     document.getElementById('useToolBtn').onclick = async () => {
         const name = document.getElementById('useToolName').value;
         const argsStr = document.getElementById('useToolArgs').value;
@@ -531,6 +528,26 @@ def use_tool():
         return jsonify({"result": result})
     except Exception as e:
         return jsonify({"error": f"Execution failed: {str(e)}", "traceback": traceback.format_exc()}), 500
+
+@app.route('/jarvis_ask', methods=['POST'])
+def jarvis_ask():
+    question = generate_proactive_question()
+    pending = load_pending_questions()
+    pending.append({
+        "timestamp": datetime.now().isoformat(),
+        "question": question
+    })
+    save_pending_questions(pending)
+    return jsonify({"message": "Question generated", "question": question}), 200
+
+@app.route('/pending_questions', methods=['GET'])
+def get_pending_questions():
+    return jsonify(load_pending_questions())
+
+@app.route('/clear_questions', methods=['POST'])
+def clear_questions():
+    save_pending_questions([])
+    return jsonify({"message": "All pending questions cleared"}), 200
 
 @app.route('/')
 def home():
