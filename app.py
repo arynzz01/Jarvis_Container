@@ -11,7 +11,6 @@ import pypdf
 
 app = Flask(__name__)
 
-# Configuration
 UPLOAD_FOLDER = "/data/uploads"
 CHROMA_PATH = "/data/chroma"
 ALLOWED_EXTENSIONS = {'txt', 'pdf'}
@@ -20,14 +19,12 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(CHROMA_PATH, exist_ok=True)
 
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 
-# API Keys
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 if not GROQ_API_KEY:
     raise RuntimeError("GROQ_API_KEY not set")
 
-# Clients
 client = Groq(api_key=GROQ_API_KEY)
 chroma_client = chromadb.PersistentClient(path=CHROMA_PATH)
 collection = chroma_client.get_or_create_collection(name="knowledge_base")
@@ -78,10 +75,8 @@ def upload_file():
         return jsonify({"error": "Could not extract text"}), 500
 
     chunks = chunk_text(text)
-    ids = []
     for i, chunk in enumerate(chunks):
         chunk_id = f"{filename}_{i}_{uuid.uuid4().hex}"
-        ids.append(chunk_id)
         collection.upsert(
             ids=[chunk_id],
             embeddings=[embedder.encode(chunk).tolist()],
