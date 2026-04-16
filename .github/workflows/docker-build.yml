@@ -75,6 +75,15 @@ jobs:
           echo "=== Using the tool ==="
           curl -X POST http://localhost:5000/use_tool -H "Content-Type: application/json" -d '{"name":"celsius_to_fahrenheit","args":[25]}' || true
 
+      - name: Test Layer 25 - JARVIS asks questions
+        run: |
+          echo "=== Generating a question ==="
+          curl -X POST http://localhost:5000/jarvis_ask || true
+          echo "=== Fetching pending questions ==="
+          curl http://localhost:5000/pending_questions || true
+          echo "=== Clearing questions ==="
+          curl -X POST http://localhost:5000/clear_questions || true
+
       - name: Show container logs (always)
         if: always()
         run: docker logs jarvis
