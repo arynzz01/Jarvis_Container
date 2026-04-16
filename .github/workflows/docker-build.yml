@@ -51,9 +51,17 @@ jobs:
             -v /tmp/jarvis_data:/data \
             ghcr.io/${{ github.repository_owner }}/jarvis_container:latest
           sleep 5
-          echo "=== First request (store name) ==="
-          curl -X POST http://localhost:5000/ask -H "Content-Type: application/json" -d '{"question":"My name is Rahul"}'
-          echo "=== Second request (recall name) ==="
-          curl -X POST http://localhost:5000/ask -H "Content-Type: application/json" -d '{"question":"What is my name?"}'
-          echo "=== Container logs ==="
-          docker logs jarvis
+
+      - name: Test Layer 20 - Upload file and query
+        run: |
+          echo "=== Creating test file ==="
+          echo "My secret code is 42. The capital of France is Paris." > test.txt
+          echo "=== Uploading file to JARVIS ==="
+          curl -X POST http://localhost:5000/upload -F "file=@test.txt"
+          echo ""
+          echo "=== Asking question about the file ==="
+          curl -X POST http://localhost:5000/ask -H "Content-Type: application/json" -d '{"question":"What is the secret code?"}'
+          echo ""
+
+      - name: Show container logs (for debugging)
+        run: docker logs jarvis
