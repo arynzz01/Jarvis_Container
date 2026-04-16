@@ -1,133 +1,133 @@
 import os
-import json
+import uuid
 import logging
 from datetime import datetime
 from flask import Flask, request, jsonify
-import requests
+from werkzeug.utils import secure_filename
+import chromadb
+from sentence_transformers import SentenceTransformer
+from groq import Groq
+import pypdf
 
 app = Flask(__name__)
 
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
-TAVILY_API_KEY = os.environ.get("TAVILY_API_KEY", "")
-MEMORY_FILE = os.environ.get("MEMORY_FILE", "/data/memory.json")   # persistent file
+# Configuration
+UPLOAD_FOLDER = "/data/uploads"
+CHROMA_PATH = "/data/chroma"
+ALLOWED_EXTENSIONS = {'txt', 'pdf'}
 
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+os.makedirs(CHROMA_PATH, exist_ok=True)
+
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB
+
+# API Keys
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 if not GROQ_API_KEY:
     raise RuntimeError("GROQ_API_KEY not set")
 
-# Load existing memory from file
-def load_memory():
-    if os.path.exists(MEMORY_FILE):
-        try:
-            with open(MEMORY_FILE, 'r') as f:
-                return json.load(f)
-        except:
-            return []
-    return []
-
-def save_memory(mem):
-    os.makedirs(os.path.dirname(MEMORY_FILE), exist_ok=True)
-    with open(MEMORY_FILE, 'w') as f:
-        json.dump(mem, f, indent=2)
-
-conversation_memory = load_memory()
+# Clients
+client = Groq(api_key=GROQ_API_KEY)
+chroma_client = chromadb.PersistentClient(path=CHROMA_PATH)
+collection = chroma_client.get_or_create_collection(name="knowledge_base")
+embedder = SentenceTransformer('all-MiniLM-L6-v2')
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("jarvis")
 
-def sanitise_input(text):
-    dangerous = [';', '--', '/*', '*/', 'exec', 'eval', '__import__']
-    for d in dangerous:
-        text = text.replace(d, '')
-    if len(text) > 1000:
-        text = text[:1000]
-    return ''.join(c for c in text if c.isprintable())
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
+def extract_text(filepath, filename):
+    if filename.endswith('.txt'):
+        with open(filepath, 'r', encoding='utf-8') as f:
+            return f.read()
+    elif filename.endswith('.pdf'):
+        reader = pypdf.PdfReader(filepath)
+        text = ""
+        for page in reader.pages:
+            text += page.extract_text() or ""
+        return text
+    return ""
 
-def llm_chat(user_message, conversation_history):
-    messages = [{"role": "system", "content": "You are JARVIS, a helpful AI assistant."}]
-    messages.extend(conversation_history[-10:])  # last 10 exchanges
-    messages.append({"role": "user", "content": user_message})
-    headers = {
-        "Authorization": f"Bearer {GROQ_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "model": "llama-3.3-70b-versatile",
-        "messages": messages,
-        "temperature": 0.7
-    }
-    try:
-        response = requests.post(GROQ_API_URL, headers=headers, json=payload, timeout=30)
-        if response.status_code != 200:
-            logger.error(f"Groq API error {response.status_code}: {response.text}")
-            return f"I'm having trouble thinking right now. (API error {response.status_code})"
-        data = response.json()
-        reply = data['choices'][0]['message']['content']
-        conversation_history.append({"role": "user", "content": user_message})
-        conversation_history.append({"role": "assistant", "content": reply})
-        save_memory(conversation_history)   # persist after each exchange
-        return reply
-    except Exception as e:
-        logger.error(f"LLM error: {e}")
-        return "I'm having trouble thinking right now."
+def chunk_text(text, chunk_size=500):
+    words = text.split()
+    chunks = []
+    for i in range(0, len(words), chunk_size):
+        chunk = ' '.join(words[i:i+chunk_size])
+        chunks.append(chunk)
+    return chunks
 
-def web_search(query):
-    if not TAVILY_API_KEY:
-        return "Web search not configured (no API key)."
-    try:
-        resp = requests.post(
-            "https://api.tavily.com/search",
-            json={"api_key": TAVILY_API_KEY, "query": query, "max_results": 2},
-            timeout=30
+@app.route('/upload', methods=['POST'])
+def upload_file():
+    if 'file' not in request.files:
+        return jsonify({"error": "No file part"}), 400
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({"error": "No selected file"}), 400
+    if not allowed_file(file.filename):
+        return jsonify({"error": "File type not allowed"}), 400
+
+    filename = secure_filename(file.filename)
+    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    file.save(filepath)
+
+    text = extract_text(filepath, filename)
+    if not text:
+        return jsonify({"error": "Could not extract text"}), 500
+
+    chunks = chunk_text(text)
+    ids = []
+    for i, chunk in enumerate(chunks):
+        chunk_id = f"{filename}_{i}_{uuid.uuid4().hex}"
+        ids.append(chunk_id)
+        collection.upsert(
+            ids=[chunk_id],
+            embeddings=[embedder.encode(chunk).tolist()],
+            metadatas=[{"source": filename, "chunk_index": i}],
+            documents=[chunk]
         )
-        data = resp.json()
-        results = data.get("results", [])
-        if not results:
-            return "No results found."
-        summaries = [f"• {r['title']}: {r['content'][:150]}..." for r in results]
-        return "\n".join(summaries)
-    except Exception as e:
-        logger.error(f"Web search error: {e}")
-        return "Web search failed."
-
-@app.route('/')
-def home():
-    return jsonify({"status": "JARVIS is running", "version": "integrated-0.3"})
+    return jsonify({"message": f"Uploaded {filename}, created {len(chunks)} chunks"}), 200
 
 @app.route('/ask', methods=['POST'])
 def ask():
     data = request.get_json()
     if not data or 'question' not in data:
         return jsonify({"error": "Missing 'question' field"}), 400
-    raw_question = data['question']
-    question = sanitise_input(raw_question)
-    logger.info(f"Question: {question}")
+    question = data['question']
 
-    if "search" in question.lower():
-        result = web_search(question)
-        return jsonify({"answer": result})
+    question_embedding = embedder.encode(question).tolist()
+    results = collection.query(query_embeddings=[question_embedding], n_results=3)
+    contexts = results['documents'][0] if results['documents'] else []
+
+    if contexts:
+        context = "\n\n".join(contexts)
+        prompt = f"""Answer based ONLY on the context. If not in context, say "I don't know".
+
+Context:
+{context}
+
+Question: {question}
+Answer:"""
     else:
-        answer = llm_chat(question, conversation_memory)
-        return jsonify({"answer": answer})
+        prompt = f"Answer: {question}"
 
-@app.route('/health', methods=['GET'])
-def health():
-    return jsonify({
-        "status": "healthy",
-        "timestamp": datetime.now().isoformat(),
-        "memory_length": len(conversation_memory)
-    })
+    try:
+        completion = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3
+        )
+        answer = completion.choices[0].message.content
+        return jsonify({"answer": answer, "used_context": len(contexts) > 0})
+    except Exception as e:
+        logger.error(f"LLM error: {e}")
+        return jsonify({"answer": "I'm having trouble thinking right now."}), 500
 
-@app.route('/status', methods=['GET'])
-def status():
-    return jsonify({
-        "groq_api_configured": bool(GROQ_API_KEY),
-        "tavily_api_configured": bool(TAVILY_API_KEY),
-        "logging": "active",
-        "security": "input sanitisation enabled",
-        "memory_file": MEMORY_FILE
-    })
+@app.route('/')
+def home():
+    return jsonify({"status": "JARVIS with Knowledge Base", "version": "layer20"})
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
