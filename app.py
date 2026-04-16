@@ -239,6 +239,7 @@ def get_infinite_memory_context():
     if memory["recent"]:
         context += "Recent conversation:\n" + "\n".join([f"{e['role']}: {e['content']}" for e in memory["recent"]])
     return context
+
 # ------------------------------
 # Layer 27: Self-Evolving (Feedback & Prompt Improvement)
 # ------------------------------
@@ -383,8 +384,6 @@ def get_prediction():
     most_common = counter.most_common(1)[0][0]
     return most_common
 
-# Optional: Scheduled prediction refresh (not strictly needed)
-# ------------------------------
 # ------------------------------
 # Layer 29: Multi-Agent Debate
 # ------------------------------
@@ -459,6 +458,8 @@ Final answer:"""
         "transcript": all_responses,
         "answer": final_answer
     })
+
+# ------------------------------
 # API Endpoints
 # ------------------------------
 @app.route('/wake', methods=['POST'])
@@ -505,28 +506,31 @@ def ask():
     if not data or 'question' not in data:
         return jsonify({"error": "Missing 'question' field"}), 400
     question = data['question']
-        log_question(question)
-
+    
+    # Log for predictive AI
+    log_question(question)
+    
     # Add user question to infinite memory
     add_to_infinite_memory("user", question)
-
+    
     # Build prompt: combine infinite memory context + documents + question
     memory_context = get_infinite_memory_context()
     doc_context = ""
     if documents:
         all_text = "\n\n".join(documents.values())
         doc_context = f"Document text:\n{all_text[:4000]}\n\n"
-
+    
     if memory_context or doc_context:
         prompt = f"""{memory_context}{doc_context}User question: {question}\nAnswer based on the above context and your knowledge."""
     else:
         prompt = question
-
-        system_prompt = load_system_prompt()
+    
+    system_prompt = load_system_prompt()
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": prompt}
     ]
+    
     try:
         completion = client.chat.completions.create(
             model="llama-3.3-70b-versatile",
@@ -624,6 +628,7 @@ def predict():
         return jsonify({"prediction": prediction})
     else:
         return jsonify({"prediction": "Not enough data yet"})
+
 # ------------------------------
 # Mobile-friendly frontend (Layer 24)
 # ------------------------------
@@ -650,7 +655,7 @@ FRONTEND_HTML = '''
             border-radius: 16px;
             padding: 20px;
             margin-bottom: 20px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            shadow: 0 4px 12px rgba(0,0,0,0.3);
         }
         .card h2 { margin-top: 0; font-size: 1.3rem; color: #4c9aff; }
         textarea, input, button {
