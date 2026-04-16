@@ -1,14 +1,75 @@
-FROM python:3.10-slim
+name: Build and Push JARVIS Container
 
-WORKDIR /app
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
 
-COPY requirements.txt .
+env:
+  REGISTRY: ghcr.io
 
-RUN pip install --upgrade pip setuptools wheel
-RUN pip install --no-cache-dir -r requirements.txt
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
 
-COPY . .
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-EXPOSE 5000
+      - name: Convert repository name to lowercase
+        run: echo "IMAGE_NAME=${GITHUB_REPOSITORY,,}" >> $GITHUB_ENV
 
-CMD ["python", "app.py"]
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+
+  test:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create persistent data directory
+        run: mkdir -p /tmp/jarvis_data
+
+      - name: Pull and run container
+        run: |
+          docker run -d --name jarvis -p 5000:5000 \
+            -e GROQ_API_KEY=${{ secrets.GROQ_API_KEY }} \
+            -e TAVILY_API_KEY=${{ secrets.TAVILY_API_KEY }} \
+            -v /tmp/jarvis_data:/data \
+            ghcr.io/${{ github.repository_owner }}/jarvis_container:latest
+          sleep 10
+
+      - name: Test Layer 20 - Upload file and query
+        run: |
+          echo "=== Creating test file ==="
+          echo "My secret code is 42. The capital of France is Paris." > test.txt
+          echo "=== Uploading file to JARVIS ==="
+          curl -X POST http://localhost:5000/upload -F "file=@test.txt" || true
+          echo "=== Asking question ==="
+          curl -X POST http://localhost:5000/ask -H "Content-Type: application/json" -d '{"question":"What is the secret code?"}' || true
+
+      - name: Test tool creation
+        run: |
+          echo "=== Creating a tool ==="
+          curl -X POST http://localhost:5000/create_tool -H "Content-Type: application/json" -d '{"name":"celsius_to_fahrenheit","description":"convert Celsius to Fahrenheit"}' || true
+          echo "=== Listing tools ==="
+          curl http://localhost:5000/list_tools || true
+          echo "=== Using the tool ==="
+          curl -X POST http://localhost:5000/use_tool -H "Content-Type: application/json" -d '{"name":"celsius_to_fahrenheit","args":[25]}' || true
+
+      - name: Show container logs (always)
+        if: always()
+        run: docker logs jarvis
