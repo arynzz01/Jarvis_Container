@@ -139,6 +139,272 @@ def load_tool(tool_name):
     return getattr(module, tool_name, None)
 
 # ------------------------------
+# Mobile-friendly frontend (Layer 24)
+# ------------------------------
+FRONTEND_HTML = '''
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>JARVIS – Mobile AI Assistant</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background: #0a0e1a;
+            color: #e0e0e0;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        h1 {
+            font-size: 2rem;
+            text-align: center;
+            margin-bottom: 1rem;
+            color: #4c9aff;
+        }
+        .card {
+            background: #1e2433;
+            border-radius: 16px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }
+        .card h2 {
+            margin-top: 0;
+            font-size: 1.3rem;
+            color: #4c9aff;
+        }
+        textarea, input, button {
+            width: 100%;
+            padding: 12px;
+            margin-bottom: 12px;
+            border-radius: 12px;
+            border: none;
+            font-size: 1rem;
+        }
+        textarea, input {
+            background: #0f121c;
+            color: #fff;
+            border: 1px solid #2a3345;
+        }
+        button {
+            background: #4c9aff;
+            color: #fff;
+            font-weight: bold;
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+        button:active {
+            opacity: 0.7;
+        }
+        .response {
+            background: #0f121c;
+            padding: 12px;
+            border-radius: 12px;
+            margin-top: 12px;
+            white-space: pre-wrap;
+            word-break: break-word;
+            border-left: 4px solid #4c9aff;
+        }
+        .tool-item {
+            background: #0f121c;
+            margin: 8px 0;
+            padding: 10px;
+            border-radius: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .tool-name {
+            font-weight: bold;
+        }
+        .small-btn {
+            width: auto;
+            padding: 6px 12px;
+            background: #2a3345;
+        }
+        hr {
+            border-color: #2a3345;
+        }
+        .footer {
+            text-align: center;
+            font-size: 0.8rem;
+            color: #6c7a8a;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>🤖 JARVIS</h1>
+
+    <!-- Chat / Ask -->
+    <div class="card">
+        <h2>💬 Ask JARVIS</h2>
+        <textarea id="question" rows="3" placeholder="Type your question here..."></textarea>
+        <button id="askBtn">Send</button>
+        <div id="askResponse" class="response"></div>
+    </div>
+
+    <!-- Upload Document -->
+    <div class="card">
+        <h2>📄 Upload Document (TXT/PDF)</h2>
+        <input type="file" id="fileInput" accept=".txt,.pdf">
+        <button id="uploadBtn">Upload</button>
+        <div id="uploadResponse" class="response"></div>
+    </div>
+
+    <!-- Tool Creation -->
+    <div class="card">
+        <h2>🛠️ Create a Tool</h2>
+        <input type="text" id="toolName" placeholder="Tool name (e.g., celsius_to_fahrenheit)">
+        <textarea id="toolDesc" rows="2" placeholder="Description (e.g., convert Celsius to Fahrenheit)"></textarea>
+        <button id="createToolBtn">Create Tool</button>
+        <div id="createToolResponse" class="response"></div>
+    </div>
+
+    <!-- List Tools -->
+    <div class="card">
+        <h2>📋 Available Tools</h2>
+        <button id="listToolsBtn">Refresh Tools</button>
+        <div id="toolsList" class="response"></div>
+    </div>
+
+    <!-- Use Tool -->
+    <div class="card">
+        <h2>🔧 Use a Tool</h2>
+        <input type="text" id="useToolName" placeholder="Tool name">
+        <input type="text" id="useToolArgs" placeholder="Arguments (comma separated, e.g., 25)">
+        <button id="useToolBtn">Execute Tool</button>
+        <div id="useToolResponse" class="response"></div>
+    </div>
+
+    <div class="footer">JARVIS v24 – Mobile ready</div>
+</div>
+
+<script>
+    const apiBase = '';
+
+    async function fetchJSON(url, options) {
+        const response = await fetch(url, options);
+        return response.json();
+    }
+
+    document.getElementById('askBtn').onclick = async () => {
+        const question = document.getElementById('question').value;
+        if (!question) return;
+        const responseDiv = document.getElementById('askResponse');
+        responseDiv.innerHTML = 'Thinking...';
+        try {
+            const data = await fetchJSON('/ask', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ question })
+            });
+            responseDiv.innerHTML = data.answer || data.error || 'No response';
+        } catch (err) {
+            responseDiv.innerHTML = 'Error: ' + err.message;
+        }
+    };
+
+    document.getElementById('uploadBtn').onclick = async () => {
+        const fileInput = document.getElementById('fileInput');
+        const file = fileInput.files[0];
+        if (!file) return;
+        const formData = new FormData();
+        formData.append('file', file);
+        const responseDiv = document.getElementById('uploadResponse');
+        responseDiv.innerHTML = 'Uploading...';
+        try {
+            const res = await fetch('/upload', { method: 'POST', body: formData });
+            const data = await res.json();
+            responseDiv.innerHTML = data.message || data.error || 'Upload complete';
+        } catch (err) {
+            responseDiv.innerHTML = 'Error: ' + err.message;
+        }
+    };
+
+    document.getElementById('createToolBtn').onclick = async () => {
+        const name = document.getElementById('toolName').value;
+        const desc = document.getElementById('toolDesc').value;
+        if (!name || !desc) return;
+        const responseDiv = document.getElementById('createToolResponse');
+        responseDiv.innerHTML = 'Creating...';
+        try {
+            const data = await fetchJSON('/create_tool', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, description: desc })
+            });
+            responseDiv.innerHTML = data.message || data.error || 'Tool created';
+        } catch (err) {
+            responseDiv.innerHTML = 'Error: ' + err.message;
+        }
+    };
+
+    document.getElementById('listToolsBtn').onclick = async () => {
+        const responseDiv = document.getElementById('toolsList');
+        responseDiv.innerHTML = 'Loading...';
+        try {
+            const data = await fetchJSON('/list_tools', { method: 'GET' });
+            const tools = data.tools || [];
+            if (tools.length === 0) {
+                responseDiv.innerHTML = 'No tools yet.';
+                return;
+            }
+            let html = '';
+            for (const tool of tools) {
+                html += `<div class="tool-item"><span class="tool-name">${tool}</span><button class="small-btn" onclick="fillToolName('${tool}')">Use</button></div>`;
+            }
+            responseDiv.innerHTML = html;
+        } catch (err) {
+            responseDiv.innerHTML = 'Error: ' + err.message;
+        }
+    };
+
+    window.fillToolName = (name) => {
+        document.getElementById('useToolName').value = name;
+    };
+
+    document.getElementById('useToolBtn').onclick = async () => {
+        const name = document.getElementById('useToolName').value;
+        const argsStr = document.getElementById('useToolArgs').value;
+        if (!name) return;
+        let args = [];
+        if (argsStr.trim()) {
+            args = argsStr.split(',').map(s => {
+                let v = s.trim();
+                if (!isNaN(v)) return Number(v);
+                if (v === 'true') return true;
+                if (v === 'false') return false;
+                return v;
+            });
+        }
+        const responseDiv = document.getElementById('useToolResponse');
+        responseDiv.innerHTML = 'Executing...';
+        try {
+            const data = await fetchJSON('/use_tool', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, args })
+            });
+            responseDiv.innerHTML = data.result !== undefined ? `Result: ${data.result}` : (data.error || 'No result');
+        } catch (err) {
+            responseDiv.innerHTML = 'Error: ' + err.message;
+        }
+    };
+</script>
+</body>
+</html>
+'''
+
+# ------------------------------
 # API Endpoints
 # ------------------------------
 @app.route('/wake', methods=['POST'])
@@ -268,7 +534,7 @@ def use_tool():
 
 @app.route('/')
 def home():
-    return jsonify({"status": "JARVIS with Knowledge Base, Proactive Suggestions, Tool Creation & Wake Word", "version": "layer20-21-22-23"})
+    return FRONTEND_HTML
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
