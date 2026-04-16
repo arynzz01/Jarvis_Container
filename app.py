@@ -6,6 +6,7 @@ import ast
 import importlib.util
 import sys
 import traceback
+import time
 from datetime import datetime
 from flask import Flask, request, jsonify
 from werkzeug.utils import secure_filename
@@ -42,6 +43,13 @@ documents = {}
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("jarvis")
+
+# ------------------------------
+# Wake word state (Layer 23)
+# ------------------------------
+awake = False
+last_awake_time = 0
+AWAKE_TIMEOUT = 10  # seconds
 
 # ------------------------------
 # Helper functions (Layer 20)
@@ -133,6 +141,23 @@ def load_tool(tool_name):
 # ------------------------------
 # API Endpoints
 # ------------------------------
+@app.route('/wake', methods=['POST'])
+def wake():
+    global awake, last_awake_time
+    awake = True
+    last_awake_time = time.time()
+    return jsonify({"status": "JARVIS is now awake", "timeout": AWAKE_TIMEOUT})
+
+@app.before_request
+def check_wake():
+    global awake, last_awake_time
+    if request.endpoint == 'ask':
+        if not awake:
+            return jsonify({"error": "JARVIS is asleep. Call /wake first."}), 403
+        if time.time() - last_awake_time > AWAKE_TIMEOUT:
+            awake = False
+            return jsonify({"error": "JARVIS fell asleep. Wake again."}), 403
+
 @app.route('/upload', methods=['POST'])
 def upload_file():
     if 'file' not in request.files:
@@ -243,7 +268,7 @@ def use_tool():
 
 @app.route('/')
 def home():
-    return jsonify({"status": "JARVIS with Knowledge Base, Proactive Suggestions & Tool Creation", "version": "layer20-21-22"})
+    return jsonify({"status": "JARVIS with Knowledge Base, Proactive Suggestions, Tool Creation & Wake Word", "version": "layer20-21-22-23"})
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
