@@ -338,6 +338,52 @@ def feedback():
     if len([f for f in feedback_list if f.get('rating') == 'good']) % 5 == 0:
         improve_system_prompt()
     return jsonify({"message": "Feedback recorded"}), 200
+
+# ------------------------------
+# Layer 28: Predictive AI (Learn routines)
+# ------------------------------
+PREDICTIVE_DATA_FILE = "/data/predictive_data.json"
+
+def load_predictive_data():
+    if os.path.exists(PREDICTIVE_DATA_FILE):
+        with open(PREDICTIVE_DATA_FILE, 'r') as f:
+            return json.load(f)
+    return {"logs": []}  # list of {"hour": int, "question": str, "timestamp": iso}
+
+def save_predictive_data(data):
+    with open(PREDICTIVE_DATA_FILE, 'w') as f:
+        json.dump(data, f, indent=2)
+
+def log_question(question):
+    """Log user question with hour of day for pattern learning."""
+    data = load_predictive_data()
+    data["logs"].append({
+        "hour": datetime.now().hour,
+        "question": question,
+        "timestamp": datetime.now().isoformat()
+    })
+    # Keep only last 1000 logs to avoid unbounded growth
+    if len(data["logs"]) > 1000:
+        data["logs"] = data["logs"][-1000:]
+    save_predictive_data(data)
+
+def get_prediction():
+    """Return the most common question asked at the current hour."""
+    data = load_predictive_data()
+    if not data["logs"]:
+        return None
+    current_hour = datetime.now().hour
+    # Filter logs for this hour
+    hour_logs = [entry["question"] for entry in data["logs"] if entry["hour"] == current_hour]
+    if not hour_logs:
+        return None
+    # Find most frequent question
+    from collections import Counter
+    counter = Counter(hour_logs)
+    most_common = counter.most_common(1)[0][0]
+    return most_common
+
+# Optional: Scheduled prediction refresh (not strictly needed)
 # ------------------------------
 # API Endpoints
 # ------------------------------
@@ -385,6 +431,7 @@ def ask():
     if not data or 'question' not in data:
         return jsonify({"error": "Missing 'question' field"}), 400
     question = data['question']
+        log_question(question)
 
     # Add user question to infinite memory
     add_to_infinite_memory("user", question)
@@ -496,6 +543,13 @@ def clear_questions():
     save_pending_questions([])
     return jsonify({"message": "All pending questions cleared"}), 200
 
+@app.route('/predict', methods=['GET'])
+def predict():
+    prediction = get_prediction()
+    if prediction:
+        return jsonify({"prediction": prediction})
+    else:
+        return jsonify({"prediction": "Not enough data yet"})
 # ------------------------------
 # Mobile-friendly frontend (Layer 24)
 # ------------------------------
