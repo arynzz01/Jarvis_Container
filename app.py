@@ -239,7 +239,105 @@ def get_infinite_memory_context():
     if memory["recent"]:
         context += "Recent conversation:\n" + "\n".join([f"{e['role']}: {e['content']}" for e in memory["recent"]])
     return context
+# ------------------------------
+# Layer 27: Self-Evolving (Feedback & Prompt Improvement)
+# ------------------------------
+SYSTEM_PROMPT_FILE = "/data/system_prompt.txt"
+FEEDBACK_FILE = "/data/feedback.json"
 
+# Default system prompt
+DEFAULT_SYSTEM_PROMPT = "You are JARVIS, a helpful AI assistant. Be concise, accurate, and friendly."
+
+def load_system_prompt():
+    if os.path.exists(SYSTEM_PROMPT_FILE):
+        with open(SYSTEM_PROMPT_FILE, 'r') as f:
+            return f.read().strip()
+    else:
+        with open(SYSTEM_PROMPT_FILE, 'w') as f:
+            f.write(DEFAULT_SYSTEM_PROMPT)
+        return DEFAULT_SYSTEM_PROMPT
+
+def save_system_prompt(prompt):
+    with open(SYSTEM_PROMPT_FILE, 'w') as f:
+        f.write(prompt)
+
+def load_feedback():
+    if os.path.exists(FEEDBACK_FILE):
+        with open(FEEDBACK_FILE, 'r') as f:
+            return json.load(f)
+    return []
+
+def save_feedback(feedback_list):
+    with open(FEEDBACK_FILE, 'w') as f:
+        json.dump(feedback_list, f, indent=2)
+
+def improve_system_prompt():
+    """Use LLM to generate a better system prompt based on past feedback and conversation samples."""
+    feedback_list = load_feedback()
+    if len(feedback_list) < 3:
+        return False  # not enough feedback yet
+
+    # Collect last 5 positive feedbacks (or all if less)
+    positive = [f for f in feedback_list if f.get('rating') == 'good'][-5:]
+    if not positive:
+        return False
+
+    # Sample conversations from memory? Could use recent exchanges from infinite memory.
+    memory = load_infinite_memory()
+    recent_exchanges = memory["recent"][-5:]  # last 5 exchanges
+    conversation_text = "\n".join([f"{e['role']}: {e['content']}" for e in recent_exchanges])
+
+    prompt = f"""You are an AI system that helps improve the system prompt for an AI assistant named JARVIS.
+Current system prompt:
+{load_system_prompt()}
+
+Based on the following user feedback (ratings and comments) and recent conversation, suggest an improved system prompt.
+The new prompt should be concise (2-3 sentences), guiding the assistant to be more helpful, accurate, and engaging.
+Write only the new system prompt, nothing else.
+
+Feedback:
+{json.dumps(positive, indent=2)}
+
+Recent conversation:
+{conversation_text}
+
+New system prompt:"""
+    try:
+        completion = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.4
+        )
+        new_prompt = completion.choices[0].message.content.strip()
+        if new_prompt:
+            save_system_prompt(new_prompt)
+            logger.info(f"System prompt evolved to: {new_prompt}")
+            return True
+        return False
+    except Exception as e:
+        logger.error(f"Prompt improvement failed: {e}")
+        return False
+
+@app.route('/feedback', methods=['POST'])
+def feedback():
+    data = request.get_json()
+    if not data or 'rating' not in data:
+        return jsonify({"error": "Missing 'rating' (good/bad)"}), 400
+    rating = data['rating']
+    comment = data.get('comment', '')
+    # Store feedback
+    fb = {
+        "timestamp": datetime.now().isoformat(),
+        "rating": rating,
+        "comment": comment
+    }
+    feedback_list = load_feedback()
+    feedback_list.append(fb)
+    save_feedback(feedback_list)
+    # Every 5 feedbacks, attempt to improve prompt
+    if len([f for f in feedback_list if f.get('rating') == 'good']) % 5 == 0:
+        improve_system_prompt()
+    return jsonify({"message": "Feedback recorded"}), 200
 # ------------------------------
 # API Endpoints
 # ------------------------------
@@ -303,10 +401,15 @@ def ask():
     else:
         prompt = question
 
+        system_prompt = load_system_prompt()
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": prompt}
+    ]
     try:
         completion = client.chat.completions.create(
             model="llama-3.3-70b-versatile",
-            messages=[{"role": "user", "content": prompt}],
+            messages=messages,
             temperature=0.3
         )
         answer = completion.choices[0].message.content
