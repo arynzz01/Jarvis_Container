@@ -61,6 +61,15 @@ jobs:
           echo "=== Asking question ==="
           curl -X POST http://localhost:5000/ask -H "Content-Type: application/json" -d '{"question":"What is the secret code?"}' || true
 
+      - name: Test tool creation
+        run: |
+          echo "=== Creating a tool ==="
+          curl -X POST http://localhost:5000/create_tool -H "Content-Type: application/json" -d '{"name":"celsius_to_fahrenheit","description":"convert Celsius to Fahrenheit"}' || true
+          echo "=== Listing tools ==="
+          curl http://localhost:5000/list_tools || true
+          echo "=== Using the tool ==="
+          curl -X POST http://localhost:5000/use_tool -H "Content-Type: application/json" -d '{"name":"celsius_to_fahrenheit","args":[25]}' || true
+
       - name: Show container logs (always)
         if: always()
         run: docker logs jarvis
