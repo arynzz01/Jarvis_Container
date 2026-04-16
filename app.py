@@ -385,6 +385,80 @@ def get_prediction():
 
 # Optional: Scheduled prediction refresh (not strictly needed)
 # ------------------------------
+# ------------------------------
+# Layer 29: Multi-Agent Debate
+# ------------------------------
+import random
+
+DEBATE_ROUNDS = 2  # number of debate exchanges
+AGENTS = [
+    {"name": "Scientist", "prompt": "You are a rigorous, evidence‑driven scientist. Focus on facts, data, and logical consistency."},
+    {"name": "Creative", "prompt": "You are a creative thinker. Explore unconventional ideas, analogies, and outside‑the‑box solutions."},
+    {"name": "Skeptic", "prompt": "You are a skeptic. Question assumptions, identify flaws, and demand proof."}
+]
+
+def debate_round(question, previous_arguments):
+    """Run one round of debate: each agent responds to the question and previous arguments."""
+    responses = []
+    for agent in AGENTS:
+        # Build prompt including previous arguments
+        context = f"Question: {question}\n"
+        if previous_arguments:
+            context += "Previous arguments:\n" + "\n".join([f"{a['agent']}: {a['response']}" for a in previous_arguments])
+        else:
+            context += "This is the first round. Provide your initial analysis.\n"
+        full_prompt = f"{agent['prompt']}\n\n{context}\n\nYour response:"
+        try:
+            completion = client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[{"role": "user", "content": full_prompt}],
+                temperature=0.5
+            )
+            response = completion.choices[0].message.content
+            responses.append({"agent": agent['name'], "response": response})
+        except Exception as e:
+            logger.error(f"Debate agent {agent['name']} failed: {e}")
+            responses.append({"agent": agent['name'], "response": "I'm unable to respond."})
+    return responses
+
+@app.route('/debate', methods=['POST'])
+def debate():
+    data = request.get_json()
+    if not data or 'question' not in data:
+        return jsonify({"error": "Missing 'question' field"}), 400
+    question = data['question']
+    rounds = data.get('rounds', DEBATE_ROUNDS)
+
+    all_responses = []
+    for r in range(rounds):
+        round_responses = debate_round(question, all_responses)
+        all_responses.extend(round_responses)
+
+    # Produce a final answer by asking a "judge" agent to synthesize the debate
+    debate_transcript = "\n".join([f"{resp['agent']}: {resp['response']}" for resp in all_responses])
+    synthesis_prompt = f"""You are a neutral judge. Based on the following debate, produce a concise, balanced, and accurate final answer to the question: "{question}".
+
+Debate transcript:
+{debate_transcript}
+
+Final answer:"""
+    try:
+        completion = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": synthesis_prompt}],
+            temperature=0.3
+        )
+        final_answer = completion.choices[0].message.content
+    except Exception as e:
+        logger.error(f"Synthesis failed: {e}")
+        final_answer = "I'm having trouble reaching a consensus."
+
+    return jsonify({
+        "question": question,
+        "rounds": rounds,
+        "transcript": all_responses,
+        "answer": final_answer
+    })
 # API Endpoints
 # ------------------------------
 @app.route('/wake', methods=['POST'])
