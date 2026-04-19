@@ -850,6 +850,9 @@ FRONTEND_HTML = '''
 @app.route('/')
 def home():
     return FRONTEND_HTML
+@app.route('/health', methods=['GET'])
+def health():
+    return jsonify({"status": "healthy", "timestamp": datetime.now().isoformat()}), 200    
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
